@@ -2,14 +2,15 @@
 
 import { useEffect, useState } from "react";
 import { useTelegram } from "@/components/providers/telegram-provider";
+import { initData } from "@telegram-apps/sdk-react";
 
 export default function AuthVerifier() {
-  const { tg } = useTelegram();
+  const { user } = useTelegram();
   const [error, setError] = useState<string | null>(null);
   const [isVerifying, setIsVerifying] = useState(true);
   
   useEffect(() => {
-    if (!tg || !tg.initData) {
+    if (!user) {
       setError("Приложение должно быть запущено внутри Telegram");
       setIsVerifying(false);
       return;
@@ -22,7 +23,7 @@ export default function AuthVerifier() {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        initData: tg.initData
+        initData: initData.raw.valueOf()
       }),
     })
       .then((res) => res.json())
@@ -37,7 +38,7 @@ export default function AuthVerifier() {
         setError("Ошибка при проверке подлинности");
         setIsVerifying(false);
       });
-  }, [tg]);
+  }, [user]);
 
   if (isVerifying) {
     return <div>Проверка подлинности...</div>;

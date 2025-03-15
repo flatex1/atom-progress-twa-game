@@ -1,10 +1,9 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback } from "react";
 import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
-import { useTelegram } from "@/components/providers/telegram-provider";
 
 interface BoosterCardProps {
   booster: {
@@ -38,7 +37,6 @@ export default function BoosterCard({
   userResources 
 }: BoosterCardProps) {
   const [isActivating, setIsActivating] = useState(false);
-  const { showMainButton, hideMainButton } = useTelegram();
   
   const activateBooster = useMutation(api.boosters.activateBooster);
   
@@ -98,26 +96,6 @@ export default function BoosterCard({
       (booster.cost.particles && userResources.particles < booster.cost.particles)
     );
   }, [booster.cost, userResources]);
-  
-  // Настройка кнопки Telegram при монтировании компонента
-  useEffect(() => {
-    if (booster.isAvailable && canAfford() && !isActivating) {
-      showMainButton(`АКТИВИРОВАТЬ ${booster.name}`, handleActivate);
-      return () => hideMainButton();
-    }
-    
-    return () => hideMainButton();
-  }, [
-    booster, 
-    userResources, 
-    isActivating, 
-    canAfford, 
-    handleActivate, 
-    hideMainButton, 
-    showMainButton, 
-    booster.name, 
-    booster.isAvailable
-  ]);
   
   // Получаем строку с требованиями, если они есть и не выполнены
   const getRequirementsText = (): string | null => {

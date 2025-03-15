@@ -1,44 +1,16 @@
 "use client";
 
-import { ReactNode, createContext, useContext, useEffect, useState } from "react";
-
-// Типы для Telegram WebApp
-declare global {
-  interface Window {
-    Telegram: {
-      WebApp: {
-        initData: string;
-        initDataUnsafe: {
-          user?: {
-            id: number;
-            first_name: string;
-            last_name?: string;
-            username?: string;
-          };
-        };
-        ready: () => void;
-        expand: () => void;
-        close: () => void;
-        MainButton: {
-          show: () => void;
-          hide: () => void;
-          setText: (text: string) => void;
-          onClick: (callback: () => void) => void;
-          offClick: (callback: () => void) => void;
-          enable: () => void;
-          disable: () => void;
-        };
-      };
-    };
-    TelegramGameProxy?: {
-      receiveEvent: (eventType: string, eventData: unknown) => void;
-    };
-    TelegramWebView?: {
-      receiveEvent: (eventType: string, eventData: unknown) => void;
-    };
-    TelegramGameProxy_receiveEvent?: (eventType: string, eventData: unknown) => void;
-  }
-}
+import { ReactNode, useEffect, useState, createContext, useContext } from "react";
+import { 
+  init as initSDK, 
+  backButton,
+  mainButton,
+  viewport,
+  themeParams,
+  miniApp,
+  initData,
+  type User
+} from "@telegram-apps/sdk-react";
 
 type TelegramUser = {
   id: number;
@@ -47,144 +19,145 @@ type TelegramUser = {
   username?: string;
 };
 
-type TelegramContextType = {
+type TelegramContext = {
   user: TelegramUser | null;
   isReady: boolean;
-  tg: typeof window.Telegram.WebApp | null;
-  showMainButton: (text: string, callback: () => void) => void;
-  hideMainButton: () => void;
+  mainButton: typeof mainButton;
+  backButton: typeof backButton;
+  platform: {
+    isTelegram: boolean;
+    isTMA: boolean;
+  };
 };
 
-const TelegramContext = createContext<TelegramContextType>({
+const TelegramContext = createContext<TelegramContext>({
   user: null,
   isReady: false,
-  tg: null,
-  showMainButton: () => {},
-  hideMainButton: () => {},
+  mainButton: mainButton,
+  backButton: backButton,
+  platform: {
+    isTelegram: false,
+    isTMA: false
+  }
 });
+
+export function useTelegram() {
+  return useContext(TelegramContext);
+}
 
 export function TelegramProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<TelegramUser | null>(null);
   const [isReady, setIsReady] = useState(false);
-  const [tg, setTg] = useState<typeof window.Telegram.WebApp | null>(null);
-
+  const [isTelegram, setIsTelegram] = useState(false);
+  const [isTMA, setIsTMA] = useState(false);
+  
+  // Инициализация SDK
   useEffect(() => {
-    console.log("Инициализация Telegram WebApp...");
-    console.log("Telegram API доступен:", typeof window !== "undefined" && !!window.Telegram);
+    console.log("Инициализация Telegram SDK...");
     
-    // Проверяем наличие параметра эмуляции в URL
-    const urlParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : new URLSearchParams();
-    const useEmulation = urlParams.get('emulate') === 'true';
-    
-    // Если мы не в Telegram или включен режим эмуляции
-    if ((typeof window !== "undefined" && !window.Telegram?.WebApp) || useEmulation) {
-      console.log("Создаем эмуляцию Telegram WebApp");
-      
-      window.Telegram = {
-        WebApp: {
-          initData: "mock_init_data",
-          initDataUnsafe: {
-            user: {
-              id: 123456789,
-              first_name: "Тестовый",
-              last_name: "Пользователь",
-              username: "test_user"
-            }
-          },
-          ready: function() { console.log("Эмуляция: Telegram WebApp готов"); },
-          expand: function() { console.log("Эмуляция: Telegram WebApp развернут"); },
-          close: function() { console.log("Эмуляция: Telegram WebApp закрыт"); },
-          MainButton: {
-            show: function() { console.log("Эмуляция: Показана главная кнопка"); },
-            hide: function() { console.log("Эмуляция: Скрыта главная кнопка"); },
-            setText: function(text) { console.log("Эмуляция: Текст кнопки:", text); },
-            onClick: function(callback) { 
-              console.log("Эмуляция: Добавлен обработчик клика");
-              document.addEventListener('keydown', (e) => {
-                if (e.key === 'Enter') callback();
-              });
-            },
-            offClick: function() { console.log("Эмуляция: Удален обработчик клика"); },
-            enable: function() {},
-            disable: function() {}
-          }
+    async function initializeTelegram() {
+      try {
+        // Инициализация SDK
+        initSDK();
+        
+        // Монтирование компонентов
+        if (backButton.isSupported()) {
+          backButton.mount();
         }
-      };
-      
-      // Устанавливаем мок пользователя
-      setUser({
-        id: 123456789,
-        first_name: "Тестовый",
-        last_name: "Пользователь",
-        username: "test_user"
-      });
-      
-      // Устанавливаем мок WebApp
-      setTg(window.Telegram.WebApp);
-      setIsReady(true);
-      
-      console.log("Эмуляция Telegram WebApp инициализирована");
+        miniApp.mount();
+        themeParams.mount();
+        initData.restore();
+        
+        // Монтирование viewport и привязка CSS-переменных
+        await viewport.mount().then(() => {
+          viewport.bindCssVars();
+        }).catch(e => {
+          console.error('Ошибка при монтировании viewport', e);
+        });
+        
+        // Привязка CSS-переменных для компонентов
+        miniApp.bindCssVars();
+        themeParams.bindCssVars();
+        
+        // Получаем данные инициализации
+        const userValue = initData.user;
+        if (userValue) {
+          const userData = userValue.valueOf() as User;
+          console.log("Данные пользователя получены:", userData);
+          
+          setUser({
+            id: userData.id,
+            first_name: userData.first_name,
+            last_name: userData.last_name,
+            username: userData.username
+          });
+          
+          // Получение информации о платформе из URL
+          const hash = window.location.hash.slice(1);
+          const params = new URLSearchParams(hash);
+          const platform = params.get('tgWebAppPlatform') || 'unknown';
+          
+          const isTelegram = platform !== 'unknown';
+          const isInTMA = isTelegram && platform !== 'unknown';
+          
+          setIsTelegram(isTelegram);
+          setIsTMA(isInTMA);
+          
+          setIsReady(true);
+          console.log("Telegram SDK инициализирован успешно");
+        } else {
+          console.log("Пользовательские данные отсутствуют");
+        }
+      } catch (error) {
+        console.error("Ошибка при инициализации Telegram SDK:", error);
+      }
     }
     
-    // Проверяем, запущены ли мы в Telegram WebApp
-    if (typeof window !== "undefined" && window.Telegram?.WebApp) {
-      const webApp = window.Telegram.WebApp;
-      
-      // Логирование данных WebApp
-      console.log("Telegram WebApp инициализирован!");
-      console.log("initData:", webApp.initData);
-      console.log("initDataUnsafe:", JSON.stringify(webApp.initDataUnsafe, null, 2));
-      console.log("Данные пользователя:", webApp.initDataUnsafe?.user);
-      
-      // Устанавливаем пользователя из данных WebApp
-      if (webApp.initDataUnsafe?.user) {
-        setUser(webApp.initDataUnsafe.user);
-        console.log("Пользователь установлен:", webApp.initDataUnsafe.user);
-      } else {
-        console.warn("Данные пользователя отсутствуют в initDataUnsafe, используем мок");
-        // В боевом режиме используем тестового пользователя если не получили данные
-        setUser({
-          id: 777777777, 
-          first_name: "Гость",
-          username: "guest"
-        });
-      }
-      
-      // Инициализация WebApp
-      try {
-        setTg(webApp);
-        webApp.ready();
-        webApp.expand();
-        setIsReady(true);
-        console.log("Telegram WebApp готов (webApp.ready() вызван)");
-      } catch (error) {
-        console.error("Ошибка при инициализации Telegram WebApp:", error);
-      }
-    } else {
-      console.warn("Telegram WebApp не доступен. Возможно, приложение запущено вне Telegram или используется режим разработки.");
+    initializeTelegram();
+    
+    // Компонент для дебага в мобильных устройствах
+    if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
+      const debugElement = document.createElement('div');
+      debugElement.style.position = 'fixed';
+      debugElement.style.bottom = '0';
+      debugElement.style.left = '0';
+      debugElement.style.right = '0';
+      debugElement.style.background = 'rgba(0,0,0,0.8)';
+      debugElement.style.color = 'white';
+      debugElement.style.padding = '10px';
+      debugElement.style.fontSize = '12px';
+      debugElement.style.maxHeight = '30vh';
+      debugElement.style.overflow = 'auto';
+      debugElement.style.zIndex = '9999';
+      document.body.appendChild(debugElement);
+
+      const originalLog = console.log;
+      console.log = (...args) => {
+        originalLog(...args);
+        const message = args.map(arg => 
+          typeof arg === 'object' ? JSON.stringify(arg) : String(arg)
+        ).join(' ');
+        
+        const logEntry = document.createElement('div');
+        logEntry.innerText = `${new Date().toISOString().slice(11, 19)}: ${message}`;
+        debugElement.appendChild(logEntry);
+        debugElement.scrollTop = debugElement.scrollHeight;
+      };
     }
   }, []);
-
-  // Функция для управления главной кнопкой
-  const showMainButton = (text: string, callback: () => void) => {
-    if (!tg) return;
-    
-    tg.MainButton.setText(text);
-    tg.MainButton.onClick(callback);
-    tg.MainButton.show();
-  };
-
-  const hideMainButton = () => {
-    if (!tg) return;
-    tg.MainButton.hide();
-  };
-
+  
   return (
-    <TelegramContext.Provider value={{ user, isReady, tg, showMainButton, hideMainButton }}>
+    <TelegramContext.Provider value={{ 
+      user, 
+      isReady, 
+      mainButton: mainButton, 
+      backButton: backButton,
+      platform: {
+        isTelegram,
+        isTMA
+      }
+    }}>
       {children}
     </TelegramContext.Provider>
   );
 }
-
-// Хук для использования Telegram контекста
-export const useTelegram = () => useContext(TelegramContext);

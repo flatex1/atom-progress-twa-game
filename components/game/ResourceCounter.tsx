@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
-import { useTelegram } from "@/components/providers/telegram-provider";
 
 interface ResourceCounterProps {
   userId: Id<"users">;
@@ -16,8 +15,6 @@ export default function ResourceCounter({ userId }: ResourceCounterProps) {
   const [particles, setParticles] = useState(0);
   const [productionRate, setProductionRate] = useState(0);
   const [animateEnergons, setAnimateEnergons] = useState(false);
-  
-  const { showMainButton, hideMainButton } = useTelegram();
   
   // Получение ресурсов пользователя
   const userResources = useQuery(api.users.getUserResources, {
@@ -73,17 +70,6 @@ export default function ResourceCounter({ userId }: ResourceCounterProps) {
       console.error("Ошибка при сборе ресурсов:", error);
     }
   }, [userId, collectResources]);
-  
-  // Настраиваем главную кнопку Telegram для клика
-  useEffect(() => {
-    if (userId) {
-      showMainButton("СОБРАТЬ ЭНЕРГОНЫ", handleClick);
-      
-      return () => {
-        hideMainButton();
-      };
-    }
-  }, [userId, showMainButton, hideMainButton, handleClick]);
   
   // Форматирование числа с учетом десятичных знаков
   const formatNumber = (num: number): string => {
