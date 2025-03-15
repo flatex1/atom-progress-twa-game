@@ -222,3 +222,107 @@ export const manualClick = mutation({
     return { energons: user.energons + clickValue, clickValue };
   },
 });
+
+// Синхронизация ресурсов между клиентом и сервером
+export const syncResources = mutation({
+  args: { 
+    userId: v.id("users"),
+    clientTime: v.number(),
+    clientEnergons: v.number()
+  },
+  handler: async (ctx, args) => {
+    const user = await ctx.db.get(args.userId);
+    if (!user) {
+      throw new Error("Пользователь не найден");
+    }
+    
+    const now = Date.now();
+    const timeElapsed = (now - user.lastActivity) / 1000; // в секундах
+    
+    // Расчет производства в секунду с учетом множителей
+    const productionMultiplier = user.productionMultiplier || 1;
+    const totalProduction = user.totalProduction * productionMultiplier;
+    
+    // Рассчитываем сколько ресурсов должно было накопиться
+    const earnedEnergons = Math.floor(totalProduction * timeElapsed);
+    const serverExpectedEnergons = user.energons + earnedEnergons;
+    
+    // Финальные значения ресурсов для записи
+    let finalEnergons = serverExpectedEnergons;
+    
+    // Корректируем значения, если клиент отправил большее значение (из-за кликов)
+    // Это позволяет избежать "отката" ресурсов на клиенте
+    if (args.clientEnergons > serverExpectedEnergons) {
+      finalEnergons = args.clientEnergons;
+    }
+    
+    // Обновляем ресурсы пользователя
+    await ctx.db.patch(args.userId, {
+      energons: finalEnergons,
+      lastActivity: now,
+    });
+    
+    // Записываем статистику крупной синхронизации, если прирост существенный
+    if (earnedEnergons > totalProduction * 10) { // синхронизируем если прошло более 10 секунд
+      await ctx.db.insert("statistics", {
+        userId: args.userId,
+        event: "resource_sync",
+        value: earnedEnergons,
+        timestamp: now,
+      });
+    }
+    
+    return {
+      energons: finalEnergons,
+      neutrons: user.neutrons,
+      particles: user.particles,
+      totalProduction,
+      serverTime: now
+    };
+  }
+});
+
+// Обработка пакета ручных кликов для получения ресурсов
+export const batchManualClicks = mutation({
+  args: { 
+    userId: v.id("users"), 
+    clicks: v.number() 
+  },
+  handler: async (ctx, args) => {
+    const user = await ctx.db.get(args.userId);
+    if (!user) {
+      throw new Error("Пользователь не найден");
+    }
+    
+    // Расчет базового дохода от клика
+    const baseClickValue = 1;
+    const multiplier = user.clickMultiplier || 1;
+    const totalClickValue = Math.floor(baseClickValue * multiplier * args.clicks);
+    
+    // Обновляем статистику и ресурсы
+    await ctx.db.patch(args.userId, {
+      energons: user.energons + totalClickValue,
+      totalClicks: user.totalClicks + args.clicks,
+      manualClicks: user.manualClicks + args.clicks,
+      lastActivity: Date.now(),
+    });
+    
+    // Записываем статистику пакета кликов
+    await ctx.db.insert("statistics", {
+      userId: args.userId,
+      event: "batch_clicks",
+      value: totalClickValue,
+      timestamp: Date.now(),
+      metadata: JSON.stringify({
+        clickCount: args.clicks,
+        multiplier: multiplier
+      }),
+    });
+    
+    return { 
+      energons: user.energons + totalClickValue, 
+      totalClickValue,
+      clickCount: args.clicks
+    };
+  },
+});

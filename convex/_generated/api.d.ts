@@ -13,10 +13,13 @@ import type {
   FilterApi,
   FunctionReference,
 } from "convex/server";
+import type * as boosterProcessor from "../boosterProcessor.js";
 import type * as boosters from "../boosters.js";
 import type * as complexes from "../complexes.js";
+import type * as crons from "../crons.js";
 import type * as leaderboard from "../leaderboard.js";
 import type * as resources from "../resources.js";
+import type * as resourceUpdater from "../resourceUpdater.js";
 import type * as users from "../users.js";
 
 /**
@@ -28,10 +31,13 @@ import type * as users from "../users.js";
  * ```
  */
 declare const fullApi: ApiFromModules<{
+  boosterProcessor: typeof boosterProcessor;
   boosters: typeof boosters;
   complexes: typeof complexes;
+  crons: typeof crons;
   leaderboard: typeof leaderboard;
   resources: typeof resources;
+  resourceUpdater: typeof resourceUpdater;
   users: typeof users;
 }>;
 export declare const api: FilterApi<

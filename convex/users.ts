@@ -82,8 +82,6 @@ export const createUser = mutation({
   },
 });
 
-
-
 // Получение данных пользователя с комплексами
 export const getUserWithComplexes = query({
   args: { userId: v.id("users") },
@@ -100,8 +98,8 @@ export const getUserWithComplexes = query({
   },
 });
 
-// Получение ресурсов пользователя
-export const getUserResources = query({
+// Получение текущих ресурсов пользователя с учетом накопленных ресурсов
+export const getUserResourcesWithAccrual = query({
   args: { userId: v.id("users") },
   handler: async (ctx, args) => {
     const user = await ctx.db.get(args.userId);
@@ -109,11 +107,39 @@ export const getUserResources = query({
       throw new Error("Пользователь не найден");
     }
     
+    const now = Date.now();
+    const timeElapsed = (now - user.lastActivity) / 1000; // в секундах
+    
+    // Получаем активные бустеры
+    const boosters = await ctx.db
+      .query("boosters")
+      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .filter((q) => q.gt(q.field("endTime"), now))
+      .collect();
+    
+    // Рассчитываем множитель от активных бустеров
+    const productionMultiplier = boosters.reduce((multiplier, booster) => {
+      if (booster.type === "production") {
+        return multiplier * booster.multiplier;
+      }
+      return multiplier;
+    }, user.productionMultiplier || 1);
+    
+    // Рассчитываем накопленные ресурсы
+    const baseProduction = user.totalProduction;
+    const totalProduction = baseProduction * productionMultiplier;
+    const accruedEnergons = Math.floor(totalProduction * timeElapsed);
+    
+    // Возвращаем общую информацию о ресурсах
     return {
-      energons: user.energons || 0,
-      neutrons: user.neutrons || 0,
-      particles: user.particles || 0,
-      totalProduction: user.totalProduction || 0
+      energons: user.energons + accruedEnergons,
+      neutrons: user.neutrons,
+      particles: user.particles,
+      totalProduction: baseProduction,
+      productionMultiplier,
+      activeBoostersCount: boosters.length,
+      lastActivity: user.lastActivity,
+      secondsSinceLastActivity: timeElapsed
     };
   },
 });

@@ -111,7 +111,7 @@ const ACHIEVEMENTS: Achievement[] = [
 
 export default function Achievements({ userId }: AchievementsProps) {
   // Получаем данные пользователя для проверки достижений
-  const userData = useQuery(api.users.getUserResources, {
+  const userData = useQuery(api.users.getUserResourcesWithAccrual, {
     userId,
   });
   

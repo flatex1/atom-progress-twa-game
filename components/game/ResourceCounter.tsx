@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
@@ -10,14 +10,22 @@ interface ResourceCounterProps {
 }
 
 export default function ResourceCounter({ userId }: ResourceCounterProps) {
+  // Состояние ресурсов
   const [energons, setEnergons] = useState(0);
   const [neutrons, setNeutrons] = useState(0);
   const [particles, setParticles] = useState(0);
+  
+  // Состояние для отслеживания производства
   const [productionRate, setProductionRate] = useState(0);
   const [animateEnergons, setAnimateEnergons] = useState(false);
   
+  // Буфер для ручных кликов
+  const clickBuffer = useRef(0);
+  const lastSyncTime = useRef(Date.now());
+  const lastResourceSnapshot = useRef({ energons: 0, neutrons: 0, particles: 0 });
+  
   // Получение ресурсов пользователя
-  const userResources = useQuery(api.users.getUserResources, {
+  const userResources = useQuery(api.users.getUserResourcesWithAccrual, {
     userId,
   });
   
@@ -26,50 +34,141 @@ export default function ResourceCounter({ userId }: ResourceCounterProps) {
     userId,
   });
   
-  // Мутация для добавления ресурсов вручную (клик)
-  const collectResources = useMutation(api.resources.manualClick);
+  // Мутации для взаимодействия с сервером
+  const syncResources = useMutation(api.resources.syncResources);
+  const collectClicks = useMutation(api.resources.batchManualClicks);
   
-  // Обновляем состояние компонента при изменении данных
+  // Обновляем снапшот ресурсов при получении данных с сервера
   useEffect(() => {
     if (userResources) {
-      setEnergons(userResources.energons);
-      setNeutrons(userResources.neutrons);
-      setParticles(userResources.particles);
+      // Рассчитываем, сколько ресурсов должно было накопиться с момента последней синхронизации
+      const now = Date.now();
+      const secondsSinceLastSync = (now - lastSyncTime.current) / 1000;
       
       // Учитываем множители от бустеров
       let rate = userResources.totalProduction;
       if (boosterEffects?.effects.productionMultiplier) {
         rate *= boosterEffects.effects.productionMultiplier;
       }
-      
       setProductionRate(rate);
       
-      // Обновляем ресурсы в реальном времени
-      const timer = setInterval(() => {
-        setEnergons(prevEnergons => prevEnergons + (rate / 10));
-      }, 100); // Обновляем каждые 100мс для плавности
+      // Обновляем базовые значения с сервера + накопленные за время с последней синхронизации
+      const accruedEnergons = rate * secondsSinceLastSync;
       
-      return () => clearInterval(timer);
+      setEnergons(userResources.energons + accruedEnergons);
+      setNeutrons(userResources.neutrons);
+      setParticles(userResources.particles);
+      
+      // Обновляем время последней синхронизации и снапшот ресурсов
+      lastSyncTime.current = now;
+      lastResourceSnapshot.current = {
+        energons: userResources.energons,
+        neutrons: userResources.neutrons,
+        particles: userResources.particles
+      };
     }
   }, [userResources, boosterEffects]);
   
-  // Обработчик клика для сбора ресурсов вручную
-  const handleClick = useCallback(async () => {
+  // Обновляем ресурсы в реальном времени на клиенте
+  useEffect(() => {
+    const timer = setInterval(() => {
+      // Обновляем только клиентское представление ресурсов
+      setEnergons(prevEnergons => prevEnergons + (productionRate / 10));
+    }, 100); // Обновляем каждые 100мс для плавности
+    
+    return () => clearInterval(timer);
+  }, [productionRate]);
+  
+  // Периодически синхронизируем ресурсы с сервером
+  useEffect(() => {
+    const syncTimer = setInterval(async () => {
+      if (!userId) return;
+      
+      // Отправляем накопившиеся клики, если они есть
+      if (clickBuffer.current > 0) {
+        await handleSendClicks();
+      }
+      
+      // Синхронизируем текущее состояние ресурсов
+      try {
+        const currentTime = Date.now();
+        const secondsSinceLastSync = (currentTime - lastSyncTime.current) / 1000;
+        
+        // Только если прошло достаточно времени, синхронизируем
+        if (secondsSinceLastSync > 5) {
+          const result = await syncResources({
+            userId,
+            clientTime: currentTime,
+            clientEnergons: Math.floor(energons)
+          });
+          
+          if (result) {
+            lastSyncTime.current = currentTime;
+            // Обновляем данные после синхронизации, только если есть существенная разница
+            if (Math.abs(result.energons - energons) > productionRate) {
+              setEnergons(result.energons);
+            }
+            setNeutrons(result.neutrons);
+            setParticles(result.particles);
+          }
+        }
+      } catch (error) {
+        console.error("Ошибка синхронизации ресурсов:", error);
+      }
+    }, 10000); // Синхронизация каждые 10 секунд
+    
+    return () => clearInterval(syncTimer);
+  }, [userId, energons, productionRate, syncResources]);
+  
+  // Обработчик отправки накопленных кликов
+  const handleSendClicks = useCallback(async () => {
+    if (!userId || clickBuffer.current === 0) return;
+    
+    const clickCount = clickBuffer.current;
+    clickBuffer.current = 0; // Сбрасываем буфер
+    
+    try {
+      const result = await collectClicks({
+        userId,
+        clicks: clickCount
+      });
+      
+      if (result) {
+        console.log(`Отправлено ${clickCount} кликов, получено ${result.totalClickValue} энергонов`);
+        
+        // Обновляем состояние после синхронизации (уже учтено в энергонах)
+        lastSyncTime.current = Date.now();
+      }
+    } catch (error) {
+      console.error("Ошибка при обработке кликов:", error);
+      // Возвращаем клики в буфер при ошибке
+      clickBuffer.current += clickCount;
+    }
+  }, [userId, collectClicks]);
+  
+  // Буферизированный обработчик клика
+  const handleClick = useCallback(() => {
     if (!userId) return;
     
+    // Анимация обратной связи
     setAnimateEnergons(true);
     setTimeout(() => setAnimateEnergons(false), 500);
     
-    try {
-      const result = await collectResources({ userId });
-      if (result) {
-        // Используем clickValue вместо collectedAmount
-        setEnergons(prevEnergons => prevEnergons + result.clickValue);
-      }
-    } catch (error) {
-      console.error("Ошибка при сборе ресурсов:", error);
+    // Увеличиваем буфер кликов
+    clickBuffer.current++;
+    
+    // Обновляем локальное состояние для мгновенной обратной связи
+    // Предполагаем базовое значение клика (фактическое значение определит сервер)
+    const estimatedClickValue = 1; // Базовая оценка
+    setEnergons(prevEnergons => prevEnergons + estimatedClickValue);
+    
+    // Отправляем клики на сервер через debounce
+    if (clickBuffer.current === 1) {
+      setTimeout(() => {
+        handleSendClicks();
+      }, 1000); // Отправляем пакет через 1 секунду неактивности
     }
-  }, [userId, collectResources]);
+  }, [userId, handleSendClicks]);
   
   // Форматирование числа с учетом десятичных знаков
   const formatNumber = (num: number): string => {
