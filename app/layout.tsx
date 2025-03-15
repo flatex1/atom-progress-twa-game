@@ -1,9 +1,7 @@
 import "./globals.css";
-import { Inter } from "next/font/google";
+import localFont from 'next/font/local'
 import { ConvexClientProvider } from "@/components/providers/convex-client-provider";
 import { TelegramProvider } from "@/components/providers/telegram-provider";
-
-const inter = Inter({ subsets: ["latin", "cyrillic"] });
 
 export const metadata = {
   title: "Атомный Прогресс",
@@ -13,6 +11,33 @@ export const metadata = {
   themeColor: "#2A2F45",
 };
 
+const blenderPro = localFont({
+  src: [
+    {
+      path: '../public/fonts/BlenderPro-Bold.woff',
+      weight: '700',
+      style: 'normal',
+    },
+    {
+      path: '../public/fonts/BlenderPro-Medium.woff',
+      weight: '500',
+      style: 'normal',
+    },
+    {
+      path: '../public/fonts/BlenderPro-Book.woff',
+      weight: '400',
+      style: 'normal',
+    },
+    {
+      path: '../public/fonts/BlenderPro-Thin.woff',
+      weight: '300',
+      style: 'normal',
+    }
+  ],
+  display: 'swap',
+  variable: '--font-blender-pro',
+});
+
 export default function RootLayout({
   children,
 }: {
@@ -20,7 +45,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="ru">
-      <body className={inter.className}>
+      <body className={blenderPro.className}>
         <ConvexClientProvider>
           <TelegramProvider>{children}</TelegramProvider>
         </ConvexClientProvider>

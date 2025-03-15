@@ -96,7 +96,7 @@ export default function ResourceCounter({ userId }: ResourceCounterProps) {
       )}
       
       <div className="text-center mb-2">
-        <h2 className="text-lg font-bold">Ресурсы</h2>
+        <h2 className="text-lg text-white font-bold">Ресурсы</h2>
       </div>
       
       <div className="grid grid-cols-2 gap-4">
