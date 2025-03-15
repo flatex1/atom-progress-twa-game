@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  reactStrictMode: true,
+  reactStrictMode: false, // Изменено на false для избежания двойных вызовов useEffect в режиме разработки
   async headers() {
     return [
       {
@@ -9,7 +9,11 @@ const nextConfig: NextConfig = {
         headers: [
           {
             key: 'Content-Security-Policy',
-            value: "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://telegram.org https://*.telegram.org; connect-src 'self' https://*.convex.dev wss://*.convex.dev; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:;"
+            value: "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://telegram.org https://*.telegram.org; connect-src 'self' https://*.convex.dev wss://*.convex.dev https://*.convex.cloud wss://*.convex.cloud https://*.ngrok-free.app wss://*.ngrok-free.app; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:;"
+          },
+          {
+            key: 'Access-Control-Allow-Origin',
+            value: '*'
           }
         ]
       }

@@ -30,6 +30,13 @@ declare global {
         };
       };
     };
+    TelegramGameProxy?: {
+      receiveEvent: (eventType: string, eventData: unknown) => void;
+    };
+    TelegramWebView?: {
+      receiveEvent: (eventType: string, eventData: unknown) => void;
+    };
+    TelegramGameProxy_receiveEvent?: (eventType: string, eventData: unknown) => void;
   }
 }
 
@@ -62,19 +69,99 @@ export function TelegramProvider({ children }: { children: ReactNode }) {
   const [tg, setTg] = useState<typeof window.Telegram.WebApp | null>(null);
 
   useEffect(() => {
+    console.log("Инициализация Telegram WebApp...");
+    console.log("Telegram API доступен:", typeof window !== "undefined" && !!window.Telegram);
+    
+    // Проверяем наличие параметра эмуляции в URL
+    const urlParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : new URLSearchParams();
+    const useEmulation = urlParams.get('emulate') === 'true';
+    
+    // Если мы не в Telegram или включен режим эмуляции
+    if ((typeof window !== "undefined" && !window.Telegram?.WebApp) || useEmulation) {
+      console.log("Создаем эмуляцию Telegram WebApp");
+      
+      window.Telegram = {
+        WebApp: {
+          initData: "mock_init_data",
+          initDataUnsafe: {
+            user: {
+              id: 123456789,
+              first_name: "Тестовый",
+              last_name: "Пользователь",
+              username: "test_user"
+            }
+          },
+          ready: function() { console.log("Эмуляция: Telegram WebApp готов"); },
+          expand: function() { console.log("Эмуляция: Telegram WebApp развернут"); },
+          close: function() { console.log("Эмуляция: Telegram WebApp закрыт"); },
+          MainButton: {
+            show: function() { console.log("Эмуляция: Показана главная кнопка"); },
+            hide: function() { console.log("Эмуляция: Скрыта главная кнопка"); },
+            setText: function(text) { console.log("Эмуляция: Текст кнопки:", text); },
+            onClick: function(callback) { 
+              console.log("Эмуляция: Добавлен обработчик клика");
+              document.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') callback();
+              });
+            },
+            offClick: function() { console.log("Эмуляция: Удален обработчик клика"); },
+            enable: function() {},
+            disable: function() {}
+          }
+        }
+      };
+      
+      // Устанавливаем мок пользователя
+      setUser({
+        id: 123456789,
+        first_name: "Тестовый",
+        last_name: "Пользователь",
+        username: "test_user"
+      });
+      
+      // Устанавливаем мок WebApp
+      setTg(window.Telegram.WebApp);
+      setIsReady(true);
+      
+      console.log("Эмуляция Telegram WebApp инициализирована");
+    }
+    
     // Проверяем, запущены ли мы в Telegram WebApp
     if (typeof window !== "undefined" && window.Telegram?.WebApp) {
       const webApp = window.Telegram.WebApp;
       
+      // Логирование данных WebApp
+      console.log("Telegram WebApp инициализирован!");
+      console.log("initData:", webApp.initData);
+      console.log("initDataUnsafe:", JSON.stringify(webApp.initDataUnsafe, null, 2));
+      console.log("Данные пользователя:", webApp.initDataUnsafe?.user);
+      
       // Устанавливаем пользователя из данных WebApp
       if (webApp.initDataUnsafe?.user) {
         setUser(webApp.initDataUnsafe.user);
+        console.log("Пользователь установлен:", webApp.initDataUnsafe.user);
+      } else {
+        console.warn("Данные пользователя отсутствуют в initDataUnsafe, используем мок");
+        // В боевом режиме используем тестового пользователя если не получили данные
+        setUser({
+          id: 777777777, 
+          first_name: "Гость",
+          username: "guest"
+        });
       }
       
-      setTg(webApp);
-      webApp.ready();
-      webApp.expand();
-      setIsReady(true);
+      // Инициализация WebApp
+      try {
+        setTg(webApp);
+        webApp.ready();
+        webApp.expand();
+        setIsReady(true);
+        console.log("Telegram WebApp готов (webApp.ready() вызван)");
+      } catch (error) {
+        console.error("Ошибка при инициализации Telegram WebApp:", error);
+      }
+    } else {
+      console.warn("Telegram WebApp не доступен. Возможно, приложение запущено вне Telegram или используется режим разработки.");
     }
   }, []);
 
