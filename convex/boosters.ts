@@ -80,8 +80,8 @@ export const activateBooster = mutation({
     const now = Date.now();
     const startTime = now;
     
-    // Проверяем, если это бустер RED-STAR с мгновенным эффектом
-    if (boosterType === "RED-STAR") {
+    // Проверяем, если это бустер с мгновенным эффектом (добавлена проверка isInstantBooster)
+    if (boosterConfig.isInstantBooster) {
       // Рассчитываем эквивалент 24 часов производства
       const productionBonus = user.totalProduction * 24 * 60 * 60; // 24 часа в секундах
       
@@ -112,13 +112,14 @@ export const activateBooster = mutation({
     // Для обычных бустеров создаем запись с длительностью
     const endTime = startTime + boosterConfig.duration * 1000; // конвертируем секунды в миллисекунды
     
-    // Создаем запись о бустере
+    // Создаем запись о бустере (использование affectsResource из конфигурации)
     const boosterId = await ctx.db.insert("boosters", {
       userId,
       type: boosterType,
       startTime,
       endTime,
       multiplier: boosterConfig.multiplier,
+      affectsResource: boosterConfig.affectsResource || "all",
     });
     
     // Для некоторых бустеров может потребоваться обновить множители пользователя
@@ -227,41 +228,43 @@ export const getBoosterEffects = query({
       .filter(q => q.gt(q.field("endTime"), Date.now()))
       .collect();
     
-    // Расчет множителей для разных типов эффектов
-    let productionMultiplier = 1.0;
+    // Расчет множителей для разных типов эффектов с учетом affectsResource
+    let energonMultiplier = 1.0;
+    let neutronMultiplier = 1.0;
+    let particleMultiplier = 1.0;
     const clickMultiplier = 1.0;
-    let researchSpeedMultiplier = 1.0;
-    let resourceValueMultiplier = 1.0;
     let autoCollectionActive = false;
     
     activeBoosters.forEach(booster => {
       const config = BOOSTER_CONFIGS[booster.type as keyof typeof BOOSTER_CONFIGS];
       if (!config) return;
       
-      switch (booster.type) {
-        case "PROTON-M87":
-          productionMultiplier *= config.multiplier;
-          break;
-        case "ATOMIC-HEART-42":
-          researchSpeedMultiplier *= config.multiplier;
-          break;
-        case "T-POLYMER":
-          resourceValueMultiplier *= config.multiplier;
-          break;
-        case "IRON-COMRADE":
-          autoCollectionActive = true;
-          break;
-        // Здесь можно добавить другие бустеры при необходимости
+      // Применяем множители в зависимости от типа ресурса
+      if (booster.affectsResource === "energons" || booster.affectsResource === "all") {
+        energonMultiplier *= booster.multiplier;
+      }
+      
+      if (booster.affectsResource === "neutrons" || booster.affectsResource === "all") {
+        neutronMultiplier *= booster.multiplier;
+      }
+      
+      if (booster.affectsResource === "particles" || booster.affectsResource === "all") {
+        particleMultiplier *= booster.multiplier;
+      }
+      
+      // Проверяем специальные эффекты
+      if (config.specialEffect === "auto_collect") {
+        autoCollectionActive = true;
       }
     });
     
     return {
       activeBoosters,
       effects: {
-        productionMultiplier,
+        energonMultiplier,
+        neutronMultiplier,
+        particleMultiplier,
         clickMultiplier,
-        researchSpeedMultiplier,
-        resourceValueMultiplier,
         autoCollectionActive
       }
     };

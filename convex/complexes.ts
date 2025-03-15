@@ -1,9 +1,10 @@
-import { mutation, query } from "./_generated/server";
+import { mutation, query, MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
 import { COMPLEX_CONFIGS } from "@/lib/config/game-config";
 import { calculateProduction } from "@/lib/utils/complex-utils";
 import { calculateUpgradeCost } from "@/lib/utils/complex-utils";
 import { ResourceCost } from "@/lib/types/complex";
+import { Id } from "./_generated/dataModel";
 
 // Получение всех комплексов пользователя
 export const getUserComplexes = query({
@@ -74,111 +75,123 @@ export const purchaseComplex = mutation({
     complexType: v.string(),
   },
   handler: async (ctx, args) => {
-    const { userId, complexType } = args;
-
-    // Проверяем, существует ли такой комплекс в конфигурации
-    const complexConfig =
-      COMPLEX_CONFIGS[complexType as keyof typeof COMPLEX_CONFIGS];
-    if (!complexConfig) {
-      throw new Error(`Неизвестный тип комплекса: ${complexType}`);
-    }
-
-    // Проверяем, есть ли у пользователя уже такой комплекс
-    const existingComplex = await ctx.db
-      .query("complexes")
-      .withIndex("by_userAndType", (q) =>
-        q.eq("userId", userId).eq("type", complexType)
-      )
-      .first();
-
-    if (existingComplex) {
-      throw new Error(`У вас уже есть комплекс ${complexConfig.name}`);
-    }
-
-    // Получаем текущие ресурсы пользователя
-    const user = await ctx.db.get(userId);
+    // Получаем пользователя
+    const user = await ctx.db.get(args.userId);
     if (!user) {
       throw new Error("Пользователь не найден");
     }
-
-    // Получаем список комплексов пользователя для проверки требований
-    const userComplexes = await ctx.db
-      .query("complexes")
-      .withIndex("by_userId", (q) => q.eq("userId", userId))
-      .collect();
-    // Проверяем требования для разблокировки комплекса
-    if ('requiredComplex' in complexConfig && 'requiredLevel' in complexConfig) {
-      const requiredComplex = userComplexes.find(
-        (c) => c.type === complexConfig.requiredComplex
-      );
-
-      if (
-        !requiredComplex ||
-        requiredComplex.level < complexConfig.requiredLevel
-      ) {
-        throw new Error(
-          `Для разблокировки ${complexConfig.name} требуется ${
-            COMPLEX_CONFIGS[complexConfig.requiredComplex as keyof typeof COMPLEX_CONFIGS].name
-          } уровня ${complexConfig.requiredLevel}`
-        );
+    
+    // Получаем конфигурацию комплекса
+    const complexConfig = COMPLEX_CONFIGS[args.complexType as keyof typeof COMPLEX_CONFIGS];
+    if (!complexConfig) {
+      throw new Error("Неверный тип комплекса");
+    }
+    
+    // Проверяем достаточно ли ресурсов
+    if (user.energons < complexConfig.baseCost.energons || 
+        user.neutrons < complexConfig.baseCost.neutrons || 
+        user.particles < complexConfig.baseCost.particles) {
+      throw new Error("Недостаточно ресурсов для покупки");
+    }
+    
+    // Проверяем предварительные условия (если есть)
+    if ('requiredComplex' in complexConfig) {
+      const requiredComplex = await ctx.db
+        .query("complexes")
+        .withIndex("by_userAndType", (q) => 
+          q.eq("userId", args.userId).eq("type", complexConfig.requiredComplex))
+        .first();
+        
+      if (!requiredComplex || requiredComplex.level < complexConfig.requiredLevel) {
+        throw new Error("Не выполнены предварительные условия для покупки");
       }
     }
-
-    // Проверяем, достаточно ли ресурсов
-    const baseCost = complexConfig.baseCost;
-
-    if (
-      (baseCost.energons && user.energons < baseCost.energons) ||
-      (baseCost.neutrons && user.neutrons < baseCost.neutrons) ||
-      (baseCost.particles && user.particles < baseCost.particles)
-    ) {
-      throw new Error("Недостаточно ресурсов для создания комплекса");
-    }
-
+    
     // Списываем ресурсы
-    await ctx.db.patch(userId, {
-      energons: user.energons - (baseCost.energons || 0),
-      neutrons: user.neutrons - (baseCost.neutrons || 0),
-      particles: user.particles - (baseCost.particles || 0),
+    await ctx.db.patch(args.userId, {
+      energons: user.energons - complexConfig.baseCost.energons,
+      neutrons: user.neutrons - complexConfig.baseCost.neutrons,
+      particles: user.particles - complexConfig.baseCost.particles
     });
-
-    const now = Date.now();
-
-    // Создаем новый комплекс
-    const newComplexId = await ctx.db.insert("complexes", {
-      userId,
-      type: complexType,
+    
+    // Создаем комплекс
+    const complexId = await ctx.db.insert("complexes", {
+      userId: args.userId,
+      type: args.complexType,
       level: 1,
       production: complexConfig.baseProduction,
-      lastUpgraded: now,
-      createdAt: now,
+      createdAt: Date.now(),
+      lastUpgraded: Date.now()
     });
-
+    
     // Обновляем общее производство пользователя
-    await ctx.db.patch(userId, {
-      totalProduction: user.totalProduction + complexConfig.baseProduction,
-    });
-
-    // Записываем статистику
-    await ctx.db.insert("statistics", {
-      userId,
-      event: "complex_purchase",
-      value: 1,
-      timestamp: now,
+    await updateUserProduction(ctx, args.userId);
+    
+    // Записываем в историю
+    await ctx.db.insert("resourceHistory", {
+      userId: args.userId,
+      timestamp: Date.now(),
+      energonsAdded: -complexConfig.baseCost.energons,
+      neutronsAdded: -complexConfig.baseCost.neutrons,
+      particlesAdded: -complexConfig.baseCost.particles,
+      source: "complex_purchase",
       metadata: JSON.stringify({
-        complexType,
-        cost: baseCost,
-      }),
+        complexType: args.complexType,
+        complexName: complexConfig.name,
+        level: 1
+      })
     });
-
-    return {
-      complexId: newComplexId,
-      complexType,
-      production: complexConfig.baseProduction,
-      cost: baseCost,
+    
+    return { 
+      complexId,
+      remainingEnergons: user.energons - complexConfig.baseCost.energons,
+      remainingNeutrons: user.neutrons - complexConfig.baseCost.neutrons,
+      remainingParticles: user.particles - complexConfig.baseCost.particles
     };
-  },
+  }
 });
+
+// Обновление общего производства пользователя
+async function updateUserProduction(ctx: MutationCtx, userId: Id<"users">) {
+  // Получаем все комплексы пользователя
+  const complexes = await ctx.db
+    .query("complexes")
+    .withIndex("by_userId", (q) => q.eq("userId", userId))
+    .collect();
+  
+  // Рассчитываем общее производство для каждого типа ресурсов
+  let totalEnergonProduction = 0;
+  let totalNeutronProduction = 0;
+  let totalParticleProduction = 0;
+  
+  for (const complex of complexes) {
+    // Проверяем тип комплекса для определения типа производимого ресурса
+    if (complex.type === "KOLLEKTIV-1" || complex.type === "ZARYA-M") {
+      totalEnergonProduction += complex.production;
+    } else if (complex.type === "SOYUZ-ATOM") {
+      totalNeutronProduction += complex.production;
+    } else if (complex.type === "KVANT-SIBIR") {
+      totalParticleProduction += complex.production;
+    }
+  }
+  
+  // Обновляем производство пользователя
+  await ctx.db.patch(userId, {
+    totalProduction: totalEnergonProduction,
+    totalNeutronProduction: totalNeutronProduction,
+    totalParticleProduction: totalParticleProduction,
+    lastActivity: Date.now()
+  });
+  
+  return {
+    totalEnergonProduction,
+    totalNeutronProduction,
+    totalParticleProduction
+  };
+}
+
+// Экспортируем функцию для использования в других модулях
+export { updateUserProduction };
 
 // Улучшение комплекса
 export const upgradeComplex = mutation({

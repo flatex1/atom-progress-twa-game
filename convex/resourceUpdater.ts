@@ -12,8 +12,12 @@ interface User {
   neutrons: number;
   particles: number;
   totalProduction: number;
+  totalNeutronProduction?: number;
+  totalParticleProduction?: number;
   lastActivity: number;
   productionMultiplier?: number;
+  neutronMultiplier?: number;
+  particleMultiplier?: number;
 }
 
 // Обновление ресурсов всех пользователей
@@ -50,41 +54,62 @@ export const updateAllUsersResources = internalMutation({
             .filter((q) => q.gt(q.field("endTime"), now))
             .collect();
           
-          // Рассчитываем множитель от активных бустеров
-          const productionMultiplier = boosters.reduce((multiplier, booster) => {
-            if (booster.type === "production") {
+          // Рассчитываем множитель для разных ресурсов
+          const energonMultiplier = boosters.reduce((multiplier, booster) => {
+            if (booster.affectsResource === "energons" || booster.affectsResource === "all") {
               return multiplier * booster.multiplier;
             }
             return multiplier;
           }, user.productionMultiplier || 1);
           
+          const neutronMultiplier = boosters.reduce((multiplier, booster) => {
+            if (booster.affectsResource === "neutrons" || booster.affectsResource === "all") {
+              return multiplier * booster.multiplier;
+            }
+            return multiplier;
+          }, user.neutronMultiplier || 1);
+          
+          const particleMultiplier = boosters.reduce((multiplier, booster) => {
+            if (booster.affectsResource === "particles" || booster.affectsResource === "all") {
+              return multiplier * booster.multiplier;
+            }
+            return multiplier;
+          }, user.particleMultiplier || 1);
+          
           // Время, прошедшее с последней активности
           const timeElapsed = now - user.lastActivity;
           const secondsElapsed = Math.floor(timeElapsed / 1000);
           
-          // Рассчитываем производство за период
-          const production = user.totalProduction * productionMultiplier;
-          const earnedEnergons = Math.floor(production * secondsElapsed);
+          // Рассчитываем производство для разных ресурсов
+          const energonProduction = user.totalProduction * energonMultiplier;
+          const neutronProduction = (user.totalNeutronProduction || 0) * neutronMultiplier;
+          const particleProduction = (user.totalParticleProduction || 0) * particleMultiplier;
+          
+          const earnedEnergons = Math.floor(energonProduction * secondsElapsed);
+          const earnedNeutrons = Math.floor(neutronProduction * secondsElapsed);
+          const earnedParticles = Math.floor(particleProduction * secondsElapsed);
           
           // Обновляем ресурсы пользователя
           await ctx.db.patch(user._id, {
             energons: user.energons + earnedEnergons,
+            neutrons: user.neutrons + earnedNeutrons,
+            particles: user.particles + earnedParticles,
             lastActivity: now
           });
           
-          // Записываем в статистику, если прирост значительный
-          if (earnedEnergons > 0) {
-            await ctx.db.insert("statistics", {
-              userId: user._id,
-              event: "cron_production",
-              value: earnedEnergons,
-              timestamp: now,
-              metadata: JSON.stringify({
-                secondsElapsed,
-                productionRate: production
-              })
-            });
-          }
+          // Записываем в историю изменений
+          await ctx.db.insert("resourceHistory", {
+            userId: user._id,
+            timestamp: now,
+            energonsAdded: earnedEnergons,
+            neutronsAdded: earnedNeutrons,
+            particlesAdded: earnedParticles,
+            timeElapsed: secondsElapsed,
+            source: "cron_production",
+            energonProduction,
+            neutronProduction,
+            particleProduction
+          });
           
           processed++;
         } catch (error) {

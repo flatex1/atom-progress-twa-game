@@ -10,6 +10,7 @@ import ResourceCounter from "@/components/game/ResourceCounter";
 import ActiveBoosters from "@/components/game/ActiveBoosters";
 import BoosterCard from "@/components/game/BoosterCard";
 import ComplexList from "@/components/game/ComplexList";
+import SyncManager from "@/components/game/SyncManager";
 
 export default function GamePage() {
   const { user, isReady } = useTelegram();
@@ -109,7 +110,14 @@ export default function GamePage() {
 
   return (
     <main className="container mx-auto px-4 py-6 max-w-md">
-      <h1 className="text-2xl font-bold text-center mb-6">Атомный Прогресс</h1>
+      <SyncManager
+        userId={getUserByTelegram._id}
+        energons={userResources.energons}
+        neutrons={userResources.neutrons}
+        particles={userResources.particles}
+      />
+
+      <h1 className="text-2xl font-bold text-center mb-6">Ваш кабинет</h1>
 
       {/* Счетчик ресурсов */}
       <ResourceCounter userId={getUserByTelegram._id} />
@@ -120,7 +128,7 @@ export default function GamePage() {
       {/* Табы переключения между комплексами и бустерами */}
       <div className="flex bg-gray-800 rounded-lg mb-4">
         <button
-          className={`flex-1 py-3 text-center rounded-lg ${
+          className={`flex-1 py-3 text-center text-white rounded-lg ${
             activeTab === "complexes" ? "bg-gray-700" : ""
           }`}
           onClick={() => setActiveTab("complexes")}
@@ -128,12 +136,12 @@ export default function GamePage() {
           Комплексы
         </button>
         <button
-          className={`flex-1 py-3 text-center rounded-lg ${
+          className={`flex-1 py-3 text-center text-white rounded-lg ${
             activeTab === "boosters" ? "bg-gray-700" : ""
           }`}
           onClick={() => setActiveTab("boosters")}
         >
-          Бустеры
+          Разработки
         </button>
       </div>
 
@@ -147,13 +155,13 @@ export default function GamePage() {
 
       {activeTab === "boosters" && availableBoosters && (
         <div>
-          <h2 className="text-xl font-bold mb-4">Доступные бустеры</h2>
+          <h2 className="text-xl text-white font-bold mb-4">Доступные разработки</h2>
 
           {availableBoosters.length === 0 ? (
             <div className="bg-gray-800 rounded-lg p-4 text-center">
               <p className="text-gray-400">
-                У вас пока нет доступных бустеров. Разблокируйте комплексы,
-                чтобы получить доступ к бустерам.
+                У вас пока нет доступных научных разработок. Разблокируйте
+                комплексы, чтобы получить доступ к ним.
               </p>
             </div>
           ) : (

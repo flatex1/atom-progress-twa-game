@@ -27,6 +27,11 @@ interface Achievement {
   };
 }
 
+// Добавляем определение интерфейса для элемента истории бустеров
+interface BoosterHistoryItem {
+  metadata?: string;
+}
+
 // Список достижений
 const ACHIEVEMENTS: Achievement[] = [
   {
@@ -174,7 +179,7 @@ export default function Achievements({ userId }: AchievementsProps) {
         if (boosterHistory) {
           // Считаем уникальные типы бустеров
           const uniqueBoosterTypes = new Set(
-            boosterHistory.map(history => {
+            boosterHistory.map((history: BoosterHistoryItem) => {
               try {
                 const metadata = JSON.parse(history.metadata || "{}");
                 return metadata.boosterType;

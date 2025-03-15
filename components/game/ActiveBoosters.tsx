@@ -51,9 +51,9 @@ export default function ActiveBoosters({ userId }: ActiveBoostersProps) {
   if (!activeBoosters || activeBoosters.length === 0) {
     return (
       <div className="bg-gray-800 rounded-lg p-4 mb-6">
-        <h3 className="text-lg font-bold mb-2">Активные бустеры</h3>
+        <h3 className="text-lg text-white font-bold mb-2">Текущие научные разработки</h3>
         <p className="text-gray-400 text-sm">
-          У вас нет активных бустеров. Активируйте бустеры для получения временных бонусов.
+          У вас нет активных разработок. Активируйте их для получения временных бонусов.
         </p>
       </div>
     );
@@ -61,13 +61,13 @@ export default function ActiveBoosters({ userId }: ActiveBoostersProps) {
   
   return (
     <div className="bg-gray-800 rounded-lg p-4 mb-6">
-      <h3 className="text-lg font-bold mb-3">Активные бустеры</h3>
+      <h3 className="text-lg text-white font-bold mb-3">Текущие научные разработки</h3>
       
       {boosterEffects && (
         <div className="grid grid-cols-2 gap-2 mb-4 text-xs">
-          {boosterEffects.effects.productionMultiplier > 1 && (
+          {boosterEffects.effects.energonMultiplier > 1 && (
             <div className="bg-gray-700 rounded p-2">
-              <span className="text-green-400">+{((boosterEffects.effects.productionMultiplier - 1) * 100).toFixed(0)}%</span> к производству
+              <span className="text-green-400">+{((boosterEffects.effects.energonMultiplier - 1) * 100).toFixed(0)}%</span> к производству
             </div>
           )}
           
@@ -77,15 +77,15 @@ export default function ActiveBoosters({ userId }: ActiveBoostersProps) {
             </div>
           )}
           
-          {boosterEffects.effects.researchSpeedMultiplier > 1 && (
+          {boosterEffects.effects.neutronMultiplier > 1 && (
             <div className="bg-gray-700 rounded p-2">
-              <span className="text-blue-400">+{((boosterEffects.effects.researchSpeedMultiplier - 1) * 100).toFixed(0)}%</span> к исследованиям
+              <span className="text-blue-400">+{((boosterEffects.effects.neutronMultiplier - 1) * 100).toFixed(0)}%</span> к исследованиям
             </div>
           )}
           
-          {boosterEffects.effects.resourceValueMultiplier > 1 && (
+          {boosterEffects.effects.particleMultiplier > 1 && (
             <div className="bg-gray-700 rounded p-2">
-              <span className="text-purple-400">+{((boosterEffects.effects.resourceValueMultiplier - 1) * 100).toFixed(0)}%</span> к стоимости
+              <span className="text-purple-400">+{((boosterEffects.effects.particleMultiplier - 1) * 100).toFixed(0)}%</span> к стоимости
             </div>
           )}
           

@@ -1,3 +1,4 @@
+import { api } from "./_generated/api";
 import { mutation } from "./_generated/server";
 import { v } from "convex/values";
 
@@ -223,13 +224,9 @@ export const manualClick = mutation({
   },
 });
 
-// Синхронизация ресурсов между клиентом и сервером
-export const syncResources = mutation({
-  args: { 
-    userId: v.id("users"),
-    clientTime: v.number(),
-    clientEnergons: v.number()
-  },
+// Изменяем тип мутации с internalMutation на обычный mutation
+export const lazyEvaluateResources = mutation({
+  args: { userId: v.id("users") },
   handler: async (ctx, args) => {
     const user = await ctx.db.get(args.userId);
     if (!user) {
@@ -237,47 +234,195 @@ export const syncResources = mutation({
     }
     
     const now = Date.now();
-    const timeElapsed = (now - user.lastActivity) / 1000; // в секундах
+    const timeElapsed = now - user.lastActivity;
     
-    // Расчет производства в секунду с учетом множителей
-    const productionMultiplier = user.productionMultiplier || 1;
-    const totalProduction = user.totalProduction * productionMultiplier;
-    
-    // Рассчитываем сколько ресурсов должно было накопиться
-    const earnedEnergons = Math.floor(totalProduction * timeElapsed);
-    const serverExpectedEnergons = user.energons + earnedEnergons;
-    
-    // Финальные значения ресурсов для записи
-    let finalEnergons = serverExpectedEnergons;
-    
-    // Корректируем значения, если клиент отправил большее значение (из-за кликов)
-    // Это позволяет избежать "отката" ресурсов на клиенте
-    if (args.clientEnergons > serverExpectedEnergons) {
-      finalEnergons = args.clientEnergons;
+    // Если прошло менее 1 секунды, не пересчитываем
+    if (timeElapsed < 1000) {
+      return {
+        energons: user.energons,
+        neutrons: user.neutrons,
+        particles: user.particles,
+        lastActivity: user.lastActivity
+      };
     }
+    
+    // Получаем все активные комплексы пользователя
+    const complexes = await ctx.db
+      .query("complexes")
+      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .collect();
+    
+    // Получаем активные бустеры
+    const boosters = await ctx.db
+      .query("boosters")
+      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .filter((q) => q.gt(q.field("endTime"), now))
+      .collect();
+    
+    // Рассчитываем базовое производство по типам ресурсов
+    let baseEnergonProduction = 0;
+    let baseNeutronProduction = 0;
+    let baseParticleProduction = 0;
+    
+    for (const complex of complexes) {
+      // Проверяем тип комплекса и соответствующее производство
+      if (complex.type === "KOLLEKTIV-1" || complex.type === "ZARYA-M") {
+        baseEnergonProduction += complex.production;
+      } else if (complex.type === "SOYUZ-ATOM") {
+        baseNeutronProduction += complex.production;
+      } else if (complex.type === "KVANT-SIBIR") {
+        baseParticleProduction += complex.production;
+      }
+    }
+    
+    // Рассчитываем множители от бустеров
+    const energonMultiplier = boosters.reduce((multiplier, booster) => {
+      if (booster.affectsResource === "energons" || booster.affectsResource === "all") {
+        return multiplier * booster.multiplier;
+      }
+      return multiplier;
+    }, user.productionMultiplier || 1);
+    
+    const neutronMultiplier = boosters.reduce((multiplier, booster) => {
+      if (booster.affectsResource === "neutrons" || booster.affectsResource === "all") {
+        return multiplier * booster.multiplier;
+      }
+      return multiplier;
+    }, user.neutronMultiplier || 1);
+    
+    const particleMultiplier = boosters.reduce((multiplier, booster) => {
+      if (booster.affectsResource === "particles" || booster.affectsResource === "all") {
+        return multiplier * booster.multiplier;
+      }
+      return multiplier;
+    }, user.particleMultiplier || 1);
+    
+    // Вычисляем время в секундах
+    const secondsElapsed = timeElapsed / 1000;
+    
+    // Рассчитываем прирост ресурсов
+    const energonProduction = baseEnergonProduction * energonMultiplier;
+    const neutronProduction = baseNeutronProduction * neutronMultiplier;
+    const particleProduction = baseParticleProduction * particleMultiplier;
+    
+    const earnedEnergons = Math.floor(energonProduction * secondsElapsed);
+    const earnedNeutrons = Math.floor(neutronProduction * secondsElapsed);
+    const earnedParticles = Math.floor(particleProduction * secondsElapsed);
     
     // Обновляем ресурсы пользователя
     await ctx.db.patch(args.userId, {
-      energons: finalEnergons,
+      energons: user.energons + earnedEnergons,
+      neutrons: user.neutrons + earnedNeutrons,
+      particles: user.particles + earnedParticles,
       lastActivity: now,
+      totalProduction: baseEnergonProduction,
+      totalNeutronProduction: baseNeutronProduction,
+      totalParticleProduction: baseParticleProduction,
     });
     
-    // Записываем статистику крупной синхронизации, если прирост существенный
-    if (earnedEnergons > totalProduction * 10) { // синхронизируем если прошло более 10 секунд
-      await ctx.db.insert("statistics", {
+    // Записываем в историю изменений
+    await ctx.db.insert("resourceHistory", {
+      userId: args.userId,
+      timestamp: now,
+      energonsAdded: earnedEnergons,
+      neutronsAdded: earnedNeutrons,
+      particlesAdded: earnedParticles,
+      timeElapsed: secondsElapsed,
+      source: "lazy_evaluation",
+      energonProduction,
+      neutronProduction,
+      particleProduction
+    });
+    
+    return {
+      energons: user.energons + earnedEnergons,
+      neutrons: user.neutrons + earnedNeutrons,
+      particles: user.particles + earnedParticles,
+      earnedEnergons,
+      earnedNeutrons,
+      earnedParticles,
+      energonProduction,
+      neutronProduction,
+      particleProduction,
+      lastActivity: now
+    };
+  }
+});
+
+// Определим интерфейс для данных ресурсов
+interface ResourceData {
+  energons: number;
+  neutrons: number;
+  particles: number;
+  lastActivity?: number;
+  earnedEnergons?: number;
+  earnedNeutrons?: number;
+  earnedParticles?: number;
+  energonProduction?: number;
+  neutronProduction?: number;
+  particleProduction?: number;
+}
+
+// В syncResources используем api.resources вместо syncResources
+export const syncResources = mutation({
+  args: { 
+    userId: v.id("users"),
+    clientTime: v.number(),
+    clientEnergons: v.number(),
+    clientNeutrons: v.number(),
+    clientParticles: v.number(),
+    isClosing: v.optional(v.boolean())
+  },
+  handler: async (ctx, args): Promise<{
+    energons: number;
+    neutrons: number;
+    particles: number;
+    serverTime: number;
+  }> => {
+    // Сначала выполняем ленивый пересчет на сервере
+    const serverResources: ResourceData = await ctx.runMutation(api.resources.lazyEvaluateResources, {
+      userId: args.userId
+    });
+    
+    // Сверяем клиентские данные с серверными
+    const updates: Record<string, unknown> = {
+      lastSyncTime: Date.now()
+    };
+    
+    // Используем максимальные значения, чтобы не терять прогресс клиента
+    if (args.clientEnergons > serverResources.energons) {
+      updates.energons = args.clientEnergons;
+    }
+    
+    if (args.clientNeutrons > serverResources.neutrons) {
+      updates.neutrons = args.clientNeutrons;
+    }
+    
+    if (args.clientParticles > serverResources.particles) {
+      updates.particles = args.clientParticles;
+    }
+    
+    // Если есть обновления, применяем их
+    if (Object.keys(updates).length > 1) {
+      await ctx.db.patch(args.userId, updates);
+      
+      // Запись о синхронизации в историю
+      await ctx.db.insert("resourceHistory", {
         userId: args.userId,
-        event: "resource_sync",
-        value: earnedEnergons,
-        timestamp: now,
+        timestamp: Date.now(),
+        energonsAdded: updates.energons ? (updates.energons as number) - serverResources.energons : 0,
+        neutronsAdded: updates.neutrons ? (updates.neutrons as number) - serverResources.neutrons : 0,
+        particlesAdded: updates.particles ? (updates.particles as number) - serverResources.particles : 0,
+        source: args.isClosing ? "app_closing_sync" : "manual_sync",
+        metadata: JSON.stringify({ clientTime: args.clientTime }),
       });
     }
     
     return {
-      energons: finalEnergons,
-      neutrons: user.neutrons,
-      particles: user.particles,
-      totalProduction,
-      serverTime: now
+      energons: updates.energons as number || serverResources.energons,
+      neutrons: updates.neutrons as number || serverResources.neutrons,
+      particles: updates.particles as number || serverResources.particles,
+      serverTime: Date.now()
     };
   }
 });
@@ -286,7 +431,8 @@ export const syncResources = mutation({
 export const batchManualClicks = mutation({
   args: { 
     userId: v.id("users"), 
-    clicks: v.number() 
+    clicks: v.number(),
+    clientEnergons: v.optional(v.number()) // Добавляем текущее клиентское значение энергонов
   },
   handler: async (ctx, args) => {
     const user = await ctx.db.get(args.userId);
@@ -294,34 +440,55 @@ export const batchManualClicks = mutation({
       throw new Error("Пользователь не найден");
     }
     
-    // Расчет базового дохода от клика
+    const now = Date.now();
+    
+    // Расчет накопленного производства с момента последней активности
+    const secondsElapsed = (now - user.lastActivity) / 1000;
+    const productionMultiplier = user.productionMultiplier || 1;
+    const productionRate = user.totalProduction * productionMultiplier;
+    const autoProduction = Math.floor(productionRate * secondsElapsed);
+    
+    // Расчет дохода от кликов
     const baseClickValue = 1;
-    const multiplier = user.clickMultiplier || 1;
-    const totalClickValue = Math.floor(baseClickValue * multiplier * args.clicks);
+    const clickMultiplier = user.clickMultiplier || 1;
+    const clickValue = Math.floor(baseClickValue * clickMultiplier * args.clicks);
+    
+    // Общий доход (автоматический + от кликов)
+    const totalEarned = autoProduction + clickValue;
+    
+    // Если клиент отправил текущее значение, сравниваем его с расчетным сервером
+    let finalEnergons = user.energons + totalEarned;
+    if (args.clientEnergons && args.clientEnergons > finalEnergons) {
+      finalEnergons = args.clientEnergons;
+    }
     
     // Обновляем статистику и ресурсы
     await ctx.db.patch(args.userId, {
-      energons: user.energons + totalClickValue,
+      energons: finalEnergons,
       totalClicks: user.totalClicks + args.clicks,
       manualClicks: user.manualClicks + args.clicks,
-      lastActivity: Date.now(),
+      lastActivity: now,
     });
     
     // Записываем статистику пакета кликов
     await ctx.db.insert("statistics", {
       userId: args.userId,
       event: "batch_clicks",
-      value: totalClickValue,
-      timestamp: Date.now(),
+      value: totalEarned,
+      timestamp: now,
       metadata: JSON.stringify({
         clickCount: args.clicks,
-        multiplier: multiplier
+        clickValue,
+        autoProduction,
+        multiplier: clickMultiplier
       }),
     });
     
     return { 
-      energons: user.energons + totalClickValue, 
-      totalClickValue,
+      energons: finalEnergons,
+      clickValue,
+      autoProduction,
+      totalEarned,
       clickCount: args.clicks
     };
   },

@@ -38,6 +38,29 @@ export default function ResourceCounter({ userId }: ResourceCounterProps) {
   const syncResources = useMutation(api.resources.syncResources);
   const collectClicks = useMutation(api.resources.batchManualClicks);
   
+  // Функция для отправки накопленных кликов на сервер
+  const handleSendClicks = useCallback(async () => {
+    if (clickBuffer.current > 0) {
+      try {
+        // Отправляем текущее клиентское значение энергонов для сверки
+        const result = await collectClicks({
+          userId,
+          clicks: clickBuffer.current,
+          clientEnergons: Math.floor(energons)
+        });
+        
+        // Обновляем локальное состояние с сервера
+        setEnergons(result.energons);
+        
+        // Сбрасываем буфер кликов
+        clickBuffer.current = 0;
+        console.log(`Отправлено ${result.clickCount} кликов, заработано ${result.totalEarned} энергонов`);
+      } catch (error) {
+        console.error("Ошибка при отправке кликов:", error);
+      }
+    }
+  }, [userId, collectClicks, energons]);
+  
   // Обновляем снапшот ресурсов при получении данных с сервера
   useEffect(() => {
     if (userResources) {
@@ -47,8 +70,8 @@ export default function ResourceCounter({ userId }: ResourceCounterProps) {
       
       // Учитываем множители от бустеров
       let rate = userResources.totalProduction;
-      if (boosterEffects?.effects.productionMultiplier) {
-        rate *= boosterEffects.effects.productionMultiplier;
+      if (boosterEffects?.effects.energonMultiplier) {
+        rate *= boosterEffects.effects.energonMultiplier;
       }
       setProductionRate(rate);
       
@@ -99,7 +122,9 @@ export default function ResourceCounter({ userId }: ResourceCounterProps) {
           const result = await syncResources({
             userId,
             clientTime: currentTime,
-            clientEnergons: Math.floor(energons)
+            clientEnergons: Math.floor(energons),
+            clientNeutrons: Math.floor(neutrons),
+            clientParticles: Math.floor(particles)
           });
           
           if (result) {
@@ -118,33 +143,7 @@ export default function ResourceCounter({ userId }: ResourceCounterProps) {
     }, 10000); // Синхронизация каждые 10 секунд
     
     return () => clearInterval(syncTimer);
-  }, [userId, energons, productionRate, syncResources]);
-  
-  // Обработчик отправки накопленных кликов
-  const handleSendClicks = useCallback(async () => {
-    if (!userId || clickBuffer.current === 0) return;
-    
-    const clickCount = clickBuffer.current;
-    clickBuffer.current = 0; // Сбрасываем буфер
-    
-    try {
-      const result = await collectClicks({
-        userId,
-        clicks: clickCount
-      });
-      
-      if (result) {
-        console.log(`Отправлено ${clickCount} кликов, получено ${result.totalClickValue} энергонов`);
-        
-        // Обновляем состояние после синхронизации (уже учтено в энергонах)
-        lastSyncTime.current = Date.now();
-      }
-    } catch (error) {
-      console.error("Ошибка при обработке кликов:", error);
-      // Возвращаем клики в буфер при ошибке
-      clickBuffer.current += clickCount;
-    }
-  }, [userId, collectClicks]);
+  }, [userId, energons, neutrons, particles, productionRate, syncResources, handleSendClicks]);
   
   // Буферизированный обработчик клика
   const handleClick = useCallback(() => {

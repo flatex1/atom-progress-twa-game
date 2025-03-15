@@ -108,7 +108,7 @@ export default function ComplexCard({
             )}
             
             <div>
-              <h3 className="font-bold">{config.name}</h3>
+              <h3 className="font-bold text-white">{config.name}</h3>
               <p className="text-xs text-gray-400">Уровень {complex.level}</p>
             </div>
           </div>
@@ -145,7 +145,7 @@ export default function ComplexCard({
             </div>
             
             <div className="mt-3 space-y-1">
-              <div className="text-sm font-medium">Стоимость улучшения:</div>
+              <div className="text-sm text-white font-medium">Стоимость улучшения:</div>
               
               {upgradeCost.energons && (
                 <div className="flex justify-between">

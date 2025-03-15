@@ -17,6 +17,7 @@ import type * as boosterProcessor from "../boosterProcessor.js";
 import type * as boosters from "../boosters.js";
 import type * as complexes from "../complexes.js";
 import type * as crons from "../crons.js";
+import type * as integralCalculator from "../integralCalculator.js";
 import type * as leaderboard from "../leaderboard.js";
 import type * as resources from "../resources.js";
 import type * as resourceUpdater from "../resourceUpdater.js";
@@ -35,6 +36,7 @@ declare const fullApi: ApiFromModules<{
   boosters: typeof boosters;
   complexes: typeof complexes;
   crons: typeof crons;
+  integralCalculator: typeof integralCalculator;
   leaderboard: typeof leaderboard;
   resources: typeof resources;
   resourceUpdater: typeof resourceUpdater;
