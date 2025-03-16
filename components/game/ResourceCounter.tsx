@@ -68,19 +68,33 @@ export default function ResourceCounter({ userId }: ResourceCounterProps) {
       const now = Date.now();
       const secondsSinceLastSync = (now - lastSyncTime.current) / 1000;
       
-      // Учитываем множители от бустеров
-      let rate = userResources.totalProduction;
-      if (boosterEffects?.effects.energonMultiplier) {
-        rate *= boosterEffects.effects.energonMultiplier;
+      // Учитываем множители от бустеров для каждого типа ресурсов
+      let energonRate = userResources.totalProduction;
+      let neutronRate = userResources.totalNeutronProduction || 0;
+      let particleRate = userResources.totalParticleProduction || 0;
+      
+      if (boosterEffects?.effects) {
+        if (boosterEffects.effects.energonMultiplier) {
+          energonRate *= boosterEffects.effects.energonMultiplier;
+        }
+        if (boosterEffects.effects.neutronMultiplier) {
+          neutronRate *= boosterEffects.effects.neutronMultiplier;
+        }
+        if (boosterEffects.effects.particleMultiplier) {
+          particleRate *= boosterEffects.effects.particleMultiplier;
+        }
       }
-      setProductionRate(rate);
+      
+      setProductionRate(energonRate);
       
       // Обновляем базовые значения с сервера + накопленные за время с последней синхронизации
-      const accruedEnergons = rate * secondsSinceLastSync;
+      const accruedEnergons = energonRate * secondsSinceLastSync;
+      const accruedNeutrons = neutronRate * secondsSinceLastSync;
+      const accruedParticles = particleRate * secondsSinceLastSync;
       
       setEnergons(userResources.energons + accruedEnergons);
-      setNeutrons(userResources.neutrons);
-      setParticles(userResources.particles);
+      setNeutrons(userResources.neutrons + accruedNeutrons);
+      setParticles(userResources.particles + accruedParticles);
       
       // Обновляем время последней синхронизации и снапшот ресурсов
       lastSyncTime.current = now;
@@ -92,15 +106,95 @@ export default function ResourceCounter({ userId }: ResourceCounterProps) {
     }
   }, [userResources, boosterEffects]);
   
+  // Состояние для отслеживания производства всех типов ресурсов
+  const [neutronProductionRate, setNeutronProductionRate] = useState(0);
+  const [particleProductionRate, setParticleProductionRate] = useState(0);
+  
+  // Обновляем ставки производства при получении данных о бустерах
+  useEffect(() => {
+    if (userResources && boosterEffects?.effects) {
+      let energonRate = userResources.totalProduction;
+      let neutronRate = userResources.totalNeutronProduction || 0;
+      let particleRate = userResources.totalParticleProduction || 0;
+      
+      if (boosterEffects.effects.energonMultiplier) {
+        energonRate *= boosterEffects.effects.energonMultiplier;
+      }
+      if (boosterEffects.effects.neutronMultiplier) {
+        neutronRate *= boosterEffects.effects.neutronMultiplier;
+      }
+      if (boosterEffects.effects.particleMultiplier) {
+        particleRate *= boosterEffects.effects.particleMultiplier;
+      }
+      
+      setProductionRate(energonRate);
+      setNeutronProductionRate(neutronRate);
+      setParticleProductionRate(particleRate);
+    }
+  }, [userResources, boosterEffects]);
+  
   // Обновляем ресурсы в реальном времени на клиенте
   useEffect(() => {
     const timer = setInterval(() => {
-      // Обновляем только клиентское представление ресурсов
+      // Обновляем клиентское представление всех ресурсов
       setEnergons(prevEnergons => prevEnergons + (productionRate / 10));
+      setNeutrons(prevNeutrons => prevNeutrons + (neutronProductionRate / 10));
+      setParticles(prevParticles => prevParticles + (particleProductionRate / 10));
     }, 100); // Обновляем каждые 100мс для плавности
     
     return () => clearInterval(timer);
-  }, [productionRate]);
+  }, [productionRate, neutronProductionRate, particleProductionRate]);
+  
+  // Функция для форсированной синхронизации ресурсов
+  const forceSyncResources = useCallback(async () => {
+    try {
+      const currentTime = Date.now();
+      const result = await syncResources({
+        userId,
+        clientTime: currentTime,
+        clientEnergons: Math.floor(energons),
+        clientNeutrons: Math.floor(neutrons),
+        clientParticles: Math.floor(particles)
+      });
+      
+      if (result) {
+        lastSyncTime.current = currentTime;
+        setEnergons(result.energons);
+        setNeutrons(result.neutrons);
+        setParticles(result.particles);
+        
+        lastResourceSnapshot.current = {
+          energons: result.energons,
+          neutrons: result.neutrons,
+          particles: result.particles
+        };
+      }
+    } catch (error) {
+      console.error("Ошибка принудительной синхронизации ресурсов:", error);
+    }
+  }, [userId, syncResources, energons, neutrons, particles]);
+
+  // Принудительно синхронизируем ресурсы при монтировании компонента
+  useEffect(() => {
+    if (userId) {
+      forceSyncResources();
+    }
+  }, [userId, forceSyncResources]);
+  
+  // Принудительно синхронизируем ресурсы при изменении пользователя
+  useEffect(() => {
+    if (userId) {
+      forceSyncResources();
+    }
+  }, [userId, forceSyncResources]);
+  
+  // Принудительно синхронизируем ресурсы после каждой покупки или улучшения комплекса
+  // Для этого подписываемся на изменения в userResources.lastActivity
+  useEffect(() => {
+    if (userResources?.lastActivity && lastSyncTime.current < userResources.lastActivity) {
+      forceSyncResources();
+    }
+  }, [userResources?.lastActivity, forceSyncResources]);
   
   // Периодически синхронизируем ресурсы с сервером
   useEffect(() => {
@@ -112,38 +206,17 @@ export default function ResourceCounter({ userId }: ResourceCounterProps) {
         await handleSendClicks();
       }
       
-      // Синхронизируем текущее состояние ресурсов
-      try {
-        const currentTime = Date.now();
-        const secondsSinceLastSync = (currentTime - lastSyncTime.current) / 1000;
-        
-        // Только если прошло достаточно времени, синхронизируем
-        if (secondsSinceLastSync > 5) {
-          const result = await syncResources({
-            userId,
-            clientTime: currentTime,
-            clientEnergons: Math.floor(energons),
-            clientNeutrons: Math.floor(neutrons),
-            clientParticles: Math.floor(particles)
-          });
-          
-          if (result) {
-            lastSyncTime.current = currentTime;
-            // Обновляем данные после синхронизации, только если есть существенная разница
-            if (Math.abs(result.energons - energons) > productionRate) {
-              setEnergons(result.energons);
-            }
-            setNeutrons(result.neutrons);
-            setParticles(result.particles);
-          }
-        }
-      } catch (error) {
-        console.error("Ошибка синхронизации ресурсов:", error);
+      // Синхронизируем текущее состояние ресурсов не чаще раз в 10 секунд
+      const currentTime = Date.now();
+      const secondsSinceLastSync = (currentTime - lastSyncTime.current) / 1000;
+      
+      if (secondsSinceLastSync > 10) {
+        await forceSyncResources();
       }
-    }, 10000); // Синхронизация каждые 10 секунд
+    }, 10000); // Проверка каждые 10 секунд
     
     return () => clearInterval(syncTimer);
-  }, [userId, energons, neutrons, particles, productionRate, syncResources, handleSendClicks]);
+  }, [userId, handleSendClicks, forceSyncResources]);
   
   // Буферизированный обработчик клика
   const handleClick = useCallback(() => {

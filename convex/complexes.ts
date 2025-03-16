@@ -233,7 +233,6 @@ export const upgradeComplex = mutation({
       energons: user.energons - (upgradeCost.energons || 0),
       neutrons: user.neutrons - (upgradeCost.neutrons || 0),
       particles: user.particles - (upgradeCost.particles || 0),
-      totalProduction: user.totalProduction + productionIncrease,
     });
 
     // Обновляем комплекс
@@ -242,6 +241,9 @@ export const upgradeComplex = mutation({
       production: newProduction,
       lastUpgraded: Date.now(),
     });
+
+    // Обновляем общее производство для всех типов ресурсов
+    await updateUserProduction(ctx, args.userId);
 
     // Записываем статистику
     await ctx.db.insert("statistics", {
@@ -254,6 +256,24 @@ export const upgradeComplex = mutation({
         cost: upgradeCost,
         productionIncrease,
       }),
+    });
+    
+    // Записываем в историю ресурсов
+    await ctx.db.insert("resourceHistory", {
+      userId: args.userId,
+      timestamp: Date.now(),
+      energonsAdded: -(upgradeCost.energons || 0),
+      neutronsAdded: -(upgradeCost.neutrons || 0),
+      particlesAdded: -(upgradeCost.particles || 0),
+      source: "complex_upgrade",
+      metadata: JSON.stringify({
+        complexType: complex.type,
+        complexName: COMPLEX_CONFIGS[complex.type as keyof typeof COMPLEX_CONFIGS]?.name,
+        level: newLevel,
+        oldProduction: currentProduction,
+        newProduction: newProduction,
+        productionIncrease: productionIncrease
+      })
     });
 
     return {

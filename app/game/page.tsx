@@ -10,7 +10,6 @@ import ResourceCounter from "@/components/game/ResourceCounter";
 import ActiveBoosters from "@/components/game/ActiveBoosters";
 import BoosterCard from "@/components/game/BoosterCard";
 import ComplexList from "@/components/game/ComplexList";
-import SyncManager from "@/components/game/SyncManager";
 
 export default function GamePage() {
   const { user, isReady } = useTelegram();
@@ -110,12 +109,6 @@ export default function GamePage() {
 
   return (
     <main className="container mx-auto px-4 py-6 max-w-md">
-      <SyncManager
-        userId={getUserByTelegram._id}
-        energons={userResources.energons}
-        neutrons={userResources.neutrons}
-        particles={userResources.particles}
-      />
 
       <h1 className="text-2xl font-bold text-center mb-6">Ваш кабинет</h1>
 

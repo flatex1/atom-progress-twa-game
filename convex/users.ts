@@ -117,26 +117,52 @@ export const getUserResourcesWithAccrual = query({
       .filter((q) => q.gt(q.field("endTime"), now))
       .collect();
     
-    // Рассчитываем множитель от активных бустеров
-    const productionMultiplier = boosters.reduce((multiplier, booster) => {
-      if (booster.type === "production") {
+    // Рассчитываем множители для всех ресурсов
+    const energonMultiplier = boosters.reduce((multiplier, booster) => {
+      if (booster.affectsResource === "energons" || booster.affectsResource === "all") {
         return multiplier * booster.multiplier;
       }
       return multiplier;
     }, user.productionMultiplier || 1);
     
+    const neutronMultiplier = boosters.reduce((multiplier, booster) => {
+      if (booster.affectsResource === "neutrons" || booster.affectsResource === "all") {
+        return multiplier * booster.multiplier;
+      }
+      return multiplier;
+    }, user.neutronMultiplier || 1);
+    
+    const particleMultiplier = boosters.reduce((multiplier, booster) => {
+      if (booster.affectsResource === "particles" || booster.affectsResource === "all") {
+        return multiplier * booster.multiplier;
+      }
+      return multiplier;
+    }, user.particleMultiplier || 1);
+    
     // Рассчитываем накопленные ресурсы
-    const baseProduction = user.totalProduction;
-    const totalProduction = baseProduction * productionMultiplier;
-    const accruedEnergons = Math.floor(totalProduction * timeElapsed);
+    const baseEnergonProduction = user.totalProduction || 0;
+    const baseNeutronProduction = user.totalNeutronProduction || 0;
+    const baseParticleProduction = user.totalParticleProduction || 0;
+    
+    const totalEnergonProduction = baseEnergonProduction * energonMultiplier;
+    const totalNeutronProduction = baseNeutronProduction * neutronMultiplier;
+    const totalParticleProduction = baseParticleProduction * particleMultiplier;
+    
+    const accruedEnergons = Math.floor(totalEnergonProduction * timeElapsed);
+    const accruedNeutrons = Math.floor(totalNeutronProduction * timeElapsed);
+    const accruedParticles = Math.floor(totalParticleProduction * timeElapsed);
     
     // Возвращаем общую информацию о ресурсах
     return {
       energons: user.energons + accruedEnergons,
-      neutrons: user.neutrons,
-      particles: user.particles,
-      totalProduction: baseProduction,
-      productionMultiplier,
+      neutrons: user.neutrons + accruedNeutrons,
+      particles: user.particles + accruedParticles,
+      totalProduction: baseEnergonProduction,
+      totalNeutronProduction: baseNeutronProduction,
+      totalParticleProduction: baseParticleProduction,
+      productionMultiplier: energonMultiplier,
+      neutronMultiplier,
+      particleMultiplier,
       activeBoostersCount: boosters.length,
       lastActivity: user.lastActivity,
       secondsSinceLastActivity: timeElapsed
